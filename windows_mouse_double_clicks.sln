@@ -1,0 +1,21 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.2.32526.322
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "windows_mouse_double_clicks", "windows_mouse_double_clicks.vcxproj", "{793529B6-4286-413F-93F9-39AAEBE82B89}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|x64 = Debug|x64
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{793529B6-4286-413F-93F9-39AAEBE82B89}.Debug|x64.ActiveCfg = Debug|x64
+		{793529B6-4286-413F-93F9-39AAEBE82B89}.Debug|x64.Build.0 = Debug|x64
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {28A6D85C-152F-429C-8A69-2BC7DBE8383D}
+	EndGlobalSection
+EndGlobal
