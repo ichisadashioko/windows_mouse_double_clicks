@@ -11,6 +11,18 @@
 static TCHAR szWindowClass[] = _T("windows_class_name");
 static TCHAR szTitle[] = _T("windows_title");
 
+COLORREF COLORREF_RED = RGB(255, 0, 0);
+COLORREF COLORREF_GREEN = RGB(0, 255, 0);
+
+unsigned char IS_LEFT_MOUSE_BUTTON_DOWN = 0;
+unsigned char GUI_REFRESH = 0;
+
+// Timer ID for the throttling timer
+#define CHECK_FOR_GUI_UPDATE_TIMER_ID 1
+
+// Delay between paint messages in milliseconds
+#define CHECK_FOR_GUI_UPDATE_TIMER_INTERVAL_MILLISECONDS 100
+
 void mHandleResizeMessage( //
     _In_ HWND hwnd,        //
     _In_ UINT uMsg,        //
@@ -42,7 +54,18 @@ void mHandlePaintMessage( //
     hdc = BeginPaint(hwnd, &ps);
 
     // draw black background
-    HBRUSH bgBrush = CreateSolidBrush(RGB(0, 0, 0));
+    // HBRUSH bgBrush = CreateSolidBrush(RGB(0, 0, 0));
+    HBRUSH bgBrush;
+
+    if (IS_LEFT_MOUSE_BUTTON_DOWN == 0)
+    {
+        bgBrush = CreateSolidBrush(COLORREF_GREEN);
+    }
+    else
+    {
+        bgBrush = CreateSolidBrush(COLORREF_RED);
+    }
+
     FillRect(hdc, &rc, bgBrush);
     EndPaint(hwnd, &ps);
 }
@@ -68,7 +91,11 @@ LRESULT CALLBACK WndProc( //
     _In_ LPARAM lParam    //
 )
 {
-    if (uMsg == WM_PAINT)
+    if (uMsg == WM_CREATE)
+    {
+        SetTimer(hwnd, CHECK_FOR_GUI_UPDATE_TIMER_ID, CHECK_FOR_GUI_UPDATE_TIMER_INTERVAL_MILLISECONDS, NULL);
+    }
+    else if (uMsg == WM_PAINT)
     {
         mHandlePaintMessage(hwnd, uMsg, wParam, lParam);
     }
@@ -80,8 +107,20 @@ LRESULT CALLBACK WndProc( //
     {
         mHandleKeyUpMessage(hwnd, uMsg, wParam, lParam);
     }
+    else if (uMsg == WM_TIMER)
+    {
+        if (wParam == CHECK_FOR_GUI_UPDATE_TIMER_ID)
+        {
+            if (GUI_REFRESH != 0)
+            {
+                InvalidateRect(hwnd, NULL, FALSE);
+                GUI_REFRESH = 0;
+            }
+        }
+    }
     else if (uMsg == WM_DESTROY)
     {
+        KillTimer(hwnd, CHECK_FOR_GUI_UPDATE_TIMER_ID);
         PostQuitMessage(0);
     }
     else
@@ -94,6 +133,9 @@ LRESULT CALLBACK WndProc( //
 
 LARGE_INTEGER PERFORMANCE_COUNTER_FREQUENCY = {0};
 LARGE_INTEGER GLOBAL_LEFT_CLICK_LAST_DOWN_COUNT = {0};
+LARGE_INTEGER GLOBAL_LEFT_CLICK_LAST_UP_COUNT = {0};
+
+#define DOUBLE_CLICKS_THRESHOLD 100
 
 LRESULT CALLBACK mouse_event_monitor_hook_proc( //
     _In_ int nCode,                             //
@@ -119,18 +161,50 @@ LRESULT CALLBACK mouse_event_monitor_hook_proc( //
                     double delta_count = (double)(current_count.QuadPart - GLOBAL_LEFT_CLICK_LAST_DOWN_COUNT.QuadPart);
                     double delta_seconds = (double)delta_count / (double)PERFORMANCE_COUNTER_FREQUENCY.QuadPart;
                     int delta_milliseconds = (int)(delta_seconds * 1000);
-                    if (delta_milliseconds < 100)
+                    if (delta_milliseconds < DOUBLE_CLICKS_THRESHOLD)
                     {
-                        printf("double click detected %d\n", delta_milliseconds);
+                        printf("[WM_LBUTTONDOWN] double clicks detected %d\n", delta_milliseconds);
                         return -1;
                     }
                     else
                     {
-                        printf("mouse down %d\n", delta_milliseconds);
+                        printf("[WM_LBUTTONDOWN] %d\n", delta_milliseconds);
                     }
                 }
 
                 GLOBAL_LEFT_CLICK_LAST_DOWN_COUNT = current_count;
+                if (IS_LEFT_MOUSE_BUTTON_DOWN == 0)
+                {
+                    IS_LEFT_MOUSE_BUTTON_DOWN = 1;
+                    GUI_REFRESH = 1;
+                }
+            }
+            else if (wParam == WM_LBUTTONUP)
+            {
+                LARGE_INTEGER current_count;
+                QueryPerformanceCounter(&current_count);
+                if (GLOBAL_LEFT_CLICK_LAST_UP_COUNT.QuadPart != 0)
+                {
+                    double delta_count = (double)(current_count.QuadPart - GLOBAL_LEFT_CLICK_LAST_UP_COUNT.QuadPart);
+                    double delta_seconds = ((double)delta_count) / ((double)PERFORMANCE_COUNTER_FREQUENCY.QuadPart);
+                    int delta_milliseconds = (int)(delta_seconds * 1000);
+                    if (delta_milliseconds < DOUBLE_CLICKS_THRESHOLD)
+                    {
+                        printf("[WM_LBUTTONUP] double clicks detected %d\n", delta_milliseconds);
+                        return -1;
+                    }
+                    else
+                    {
+                        printf("[WM_LBUTTONUP] %d\n", delta_milliseconds);
+                    }
+                }
+
+                GLOBAL_LEFT_CLICK_LAST_UP_COUNT = current_count;
+                if (IS_LEFT_MOUSE_BUTTON_DOWN != 0)
+                {
+                    IS_LEFT_MOUSE_BUTTON_DOWN = 0;
+                    GUI_REFRESH = 1;
+                }
             }
         }
 
