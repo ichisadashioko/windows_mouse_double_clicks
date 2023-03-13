@@ -15,7 +15,6 @@ COLORREF COLORREF_RED = RGB(255, 0, 0);
 COLORREF COLORREF_GREEN = RGB(0, 255, 0);
 
 unsigned char IS_LEFT_MOUSE_BUTTON_DOWN = 0;
-unsigned char GUI_REFRESH = 0;
 
 // Timer ID for the throttling timer
 #define CHECK_FOR_GUI_UPDATE_TIMER_ID 1
@@ -111,10 +110,23 @@ LRESULT CALLBACK WndProc( //
     {
         if (wParam == CHECK_FOR_GUI_UPDATE_TIMER_ID)
         {
-            if (GUI_REFRESH != 0)
+            SHORT left_mouse_button_state = GetAsyncKeyState(VK_LBUTTON);
+
+            if (left_mouse_button_state & 0x8000)
             {
-                InvalidateRect(hwnd, NULL, FALSE);
-                GUI_REFRESH = 0;
+                if (IS_LEFT_MOUSE_BUTTON_DOWN == 0)
+                {
+                    IS_LEFT_MOUSE_BUTTON_DOWN = 1;
+                    InvalidateRect(hwnd, NULL, FALSE);
+                }
+            }
+            else
+            {
+                if (IS_LEFT_MOUSE_BUTTON_DOWN != 0)
+                {
+                    IS_LEFT_MOUSE_BUTTON_DOWN = 0;
+                    InvalidateRect(hwnd, NULL, FALSE);
+                }
             }
         }
     }
@@ -136,6 +148,7 @@ LARGE_INTEGER GLOBAL_LEFT_CLICK_LAST_DOWN_COUNT = {0};
 LARGE_INTEGER GLOBAL_LEFT_CLICK_LAST_UP_COUNT = {0};
 
 #define DOUBLE_CLICKS_THRESHOLD 100
+#define DOWN_UP_DELTA_THRESHOLD_MILLISECONDS 50
 
 LRESULT CALLBACK mouse_event_monitor_hook_proc( //
     _In_ int nCode,                             //
@@ -147,69 +160,79 @@ LRESULT CALLBACK mouse_event_monitor_hook_proc( //
     {
         return CallNextHookEx(NULL, nCode, wParam, lParam);
     }
-    else
+
+    LARGE_INTEGER current_count;
+    double delta_count, delta_seconds;
+    int delta_milliseconds;
+
+    // monitor mouse event for double clicks and block them
+    if (PERFORMANCE_COUNTER_FREQUENCY.QuadPart == 0)
     {
-        // monitor mouse event for double clicks and block them
-        if (PERFORMANCE_COUNTER_FREQUENCY.QuadPart != 0)
+        return CallNextHookEx(NULL, nCode, wParam, lParam);
+    }
+
+    if (wParam == WM_LBUTTONDOWN)
+    {
+        QueryPerformanceCounter(&current_count);
+        if (GLOBAL_LEFT_CLICK_LAST_DOWN_COUNT.QuadPart != 0)
         {
-            if (wParam == WM_LBUTTONDOWN)
+            delta_count = (double)(current_count.QuadPart - GLOBAL_LEFT_CLICK_LAST_DOWN_COUNT.QuadPart);
+            delta_seconds = (double)delta_count / (double)PERFORMANCE_COUNTER_FREQUENCY.QuadPart;
+            delta_milliseconds = (int)(delta_seconds * 1000);
+            if (delta_milliseconds < DOUBLE_CLICKS_THRESHOLD)
             {
-                LARGE_INTEGER current_count;
-                QueryPerformanceCounter(&current_count);
-                if (GLOBAL_LEFT_CLICK_LAST_DOWN_COUNT.QuadPart != 0)
-                {
-                    double delta_count = (double)(current_count.QuadPart - GLOBAL_LEFT_CLICK_LAST_DOWN_COUNT.QuadPart);
-                    double delta_seconds = (double)delta_count / (double)PERFORMANCE_COUNTER_FREQUENCY.QuadPart;
-                    int delta_milliseconds = (int)(delta_seconds * 1000);
-                    if (delta_milliseconds < DOUBLE_CLICKS_THRESHOLD)
-                    {
-                        printf("[WM_LBUTTONDOWN] double clicks detected %d\n", delta_milliseconds);
-                        return -1;
-                    }
-                    else
-                    {
-                        printf("[WM_LBUTTONDOWN] %d\n", delta_milliseconds);
-                    }
-                }
-
-                GLOBAL_LEFT_CLICK_LAST_DOWN_COUNT = current_count;
-                if (IS_LEFT_MOUSE_BUTTON_DOWN == 0)
-                {
-                    IS_LEFT_MOUSE_BUTTON_DOWN = 1;
-                    GUI_REFRESH = 1;
-                }
+                printf("[WM_LBUTTONDOWN] double clicks detected %d\n", delta_milliseconds);
+                return -1;
             }
-            else if (wParam == WM_LBUTTONUP)
+            else
             {
-                LARGE_INTEGER current_count;
-                QueryPerformanceCounter(&current_count);
-                if (GLOBAL_LEFT_CLICK_LAST_UP_COUNT.QuadPart != 0)
-                {
-                    double delta_count = (double)(current_count.QuadPart - GLOBAL_LEFT_CLICK_LAST_UP_COUNT.QuadPart);
-                    double delta_seconds = ((double)delta_count) / ((double)PERFORMANCE_COUNTER_FREQUENCY.QuadPart);
-                    int delta_milliseconds = (int)(delta_seconds * 1000);
-                    if (delta_milliseconds < DOUBLE_CLICKS_THRESHOLD)
-                    {
-                        printf("[WM_LBUTTONUP] double clicks detected %d\n", delta_milliseconds);
-                        return -1;
-                    }
-                    else
-                    {
-                        printf("[WM_LBUTTONUP] %d\n", delta_milliseconds);
-                    }
-                }
-
-                GLOBAL_LEFT_CLICK_LAST_UP_COUNT = current_count;
-                if (IS_LEFT_MOUSE_BUTTON_DOWN != 0)
-                {
-                    IS_LEFT_MOUSE_BUTTON_DOWN = 0;
-                    GUI_REFRESH = 1;
-                }
+                printf("[WM_LBUTTONDOWN] %d\n", delta_milliseconds);
             }
         }
 
-        return CallNextHookEx(NULL, nCode, wParam, lParam);
+        GLOBAL_LEFT_CLICK_LAST_DOWN_COUNT = current_count;
     }
+    else if (wParam == WM_LBUTTONUP)
+    {
+        QueryPerformanceCounter(&current_count);
+        if (GLOBAL_LEFT_CLICK_LAST_UP_COUNT.QuadPart == 0)
+        {
+            GLOBAL_LEFT_CLICK_LAST_UP_COUNT = current_count;
+            return CallNextHookEx(NULL, nCode, wParam, lParam);
+        }
+
+        // compare to last down
+        delta_count = (double)(current_count.QuadPart - GLOBAL_LEFT_CLICK_LAST_DOWN_COUNT.QuadPart);
+        delta_seconds = ((double)delta_count) / ((double)PERFORMANCE_COUNTER_FREQUENCY.QuadPart);
+        delta_milliseconds = (int)(delta_seconds * 1000);
+        if (delta_milliseconds < DOWN_UP_DELTA_THRESHOLD_MILLISECONDS)
+        {
+            printf("[WM_LBUTTONUP-VM_LBUTTONDOWN] double clicks detected %d\n", delta_milliseconds);
+            return -1;
+        }
+        else
+        {
+            printf("[WM_LBUTTONUP-VM_LBUTTONDOWN] %d\n", delta_milliseconds);
+        }
+
+        // compare to last up
+        delta_count = (double)(current_count.QuadPart - GLOBAL_LEFT_CLICK_LAST_UP_COUNT.QuadPart);
+        delta_seconds = ((double)delta_count) / ((double)PERFORMANCE_COUNTER_FREQUENCY.QuadPart);
+        delta_milliseconds = (int)(delta_seconds * 1000);
+        if (delta_milliseconds < DOUBLE_CLICKS_THRESHOLD)
+        {
+            printf("[WM_LBUTTONUP] double clicks detected %d\n", delta_milliseconds);
+            return -1;
+        }
+        else
+        {
+            printf("[WM_LBUTTONUP] %d\n", delta_milliseconds);
+        }
+
+        GLOBAL_LEFT_CLICK_LAST_UP_COUNT = current_count;
+    }
+
+    return CallNextHookEx(NULL, nCode, wParam, lParam);
 }
 
 int CALLBACK wWinMain(                //
